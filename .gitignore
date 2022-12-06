@@ -2,9 +2,10 @@
 .Python
 develop-eggs/
 dist/
+build/
 downloads/
 node_modules/
-
+*.egg-info/
 
 # uwsgi
 *.sock
