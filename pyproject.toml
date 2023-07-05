@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "caishengxiang"
-version = "0.1.8"
+version = "0.1.9"
 requires-python = ">=3.8"
 authors = [
     { name = "caishengxiang", email = "wancheng3833@163.com" },
@@ -17,19 +17,19 @@ dependencies = [
     "wheel>=0.37.1",
     "requests",
 ]
-classifiers =[
+classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
-
+license = { file = "LICENSE" }
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["caishengxiang", "caishengxiang.*"]
 
 [tool.setuptools.package-data]
-mypkg =['*conf', '*.ini', '*.mako', '*.yaml']
+mypkg = ['*conf', '*.ini', '*.mako', '*.yaml']
 
 [project.scripts]
 hello-csx = "caishengxiang:hello"

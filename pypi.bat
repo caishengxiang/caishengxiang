@@ -1,7 +1,7 @@
 del /q .\dist
 del /q .\build
 pip install twine
-python setup.py sdist bdist_wheel
+python3 -m build
 twine upload -r pypi dist/*
 del /q .\dist
 del /q .\build
