@@ -13,6 +13,7 @@ import pwd
 
 
 def get_chmod_number(path: str) -> str:
+    """获取文件/文件夹 权限"""
     s = os.stat(path)
     mode = s[stat.ST_MODE]
     usr_num = 0
