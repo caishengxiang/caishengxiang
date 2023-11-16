@@ -50,5 +50,5 @@ if __name__ == '__main__':
     # run_command(hosts=["175.178.172.183"], user='ubuntu', password='xxxx', cmd='rm ./xxxx')
     # run_command(hosts=["175.178.172.183"], user='ubuntu', password='xxxx', cmd='rm ./xxxx', if_raise=True)
 
-    run_commands(hosts=["175.178.172.183"], user='ubuntu', password='xxxx',
-                 cmds=['ls', 'rm ./xxxx'])
+    run_commands(hosts=["192.168.0.111"], user='csx', password='Orange_123',
+                 cmds=['ls', 'ls'])

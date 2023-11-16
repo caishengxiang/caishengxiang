@@ -8,6 +8,7 @@ sudo yum install epel-release
 sudo yum install nload
 """
 import time
+import logging
 import os
 import datetime
 import re
@@ -20,42 +21,18 @@ except:
     raise Exception('you need: pip install paramiko')
 
 from caishengxiang.utils.draw_tools.echarts_draw import Draw
+from pyecharts.charts import Page
 
 
-def get_cpu_usage(content):
-    """
-    return 使用率(%)
-    """
-    lines = content.split('\n')
-    cpu_line = [x for x in lines if 'Cpu(s)' in x][0]
-    cpu_strs = cpu_line.split(':')[1].split(',')
-    cpu_id_str = cpu_strs[3].strip()
-    cpu_id = float(cpu_id_str.split()[0])
-    usage = 100 - cpu_id
-    return round(usage, 2)
-
-
-def get_memory_usage(content):
-    """
-    return 字节
-    """
-    lines = content.split('\n')
-    mem_line = [x for x in lines if x.startswith('KiB Mem')][0]
-    mem_infos = mem_line.split(',')
-    used = [x for x in mem_infos if 'used' in x][0]
-    used = used.split()[0]
-    return int(used)
-
-
-def get_top_content(hostname, username, password):
+def exec_ssh_command(hostname, username, password, cmd='top -bn 1'):
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(hostname=hostname, username=username, password=password)
-    stdin, stdout, stderr = ssh.exec_command('top -bn 1')
+    stdin, stdout, stderr = ssh.exec_command(cmd)
     output = stdout.read()
-    top_content = output.decode()
+    content = output.decode()
     ssh.close()
-    return top_content
+    return content
 
 
 class Monitor:
@@ -65,71 +42,114 @@ class Monitor:
         self.password = password
         self.save_dir = os.path.abspath(save_dir)
         pathlib.Path(self.save_dir).mkdir(parents=True, exist_ok=True)
-        # self.cpu_draw = Draw(y_name='使用率%', x_name='时间', title='{}: cpu监控'.format(hostname),
-        #                      save_path=os.path.join(save_dir, '{}_cpu.html'.format(hostname)))
-        #
-        # self.mem_draw = Draw(y_name='使用量(GiB)', x_name='时间', title='{}: 内存监控'.format(hostname),
-        #                      save_path=os.path.join(save_dir, '{}_mem.html'.format(hostname)))
         self.monitor_map = dict()
-
-        self.draw_map = dict()
+        self.page = Page()
         self.thread_pool = ThreadPoolExecutor(max_workers=10)
 
-    def _get_content(self, command: str = 'top -bn 1'):
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(hostname=self.hostname, username=self.username, password=self.password)
-        stdin, stdout, stderr = ssh.exec_command(command)
-        output = stdout.read()
-        top_content = output.decode()
-        ssh.close()
-        return top_content
+    def _exec_ssh_command(self, command: str = 'top -bn 1'):
+        return exec_ssh_command(self.hostname, self.username, self.password, command)
 
-    def add_monitor(self, command, content_handle, y_name='使用率%', x_name='时间', title='cpu监控'):
+    def default_time_handle(self):
+        return str(datetime.datetime.now())
+
+    def default_content_handle(self, content: str):
+        content = content.strip()
+        return float(content)
+
+    def add_monitor(self, command, content_handle=None, time_handle=None, y_name='使用率%',
+                    x_name='时间', title='cpu监控'):
         if self.monitor_map.get(title):
             raise Exception('已经存在同名监控:{}'.format(title))
-        content = self._get_content(command)
+        self.monitor_map[title] = {
+            'command': command,
+            'content_handle': content_handle if content_handle else self.default_content_handle,
+            'time_handle': time_handle if time_handle else self.default_time_handle,
+            'draw': Draw(y_name=y_name, x_name=x_name,
+                         title='{hostname}:{title}'.format(hostname=self.hostname, title=title),
+                         save_path=os.path.join(self.save_dir,
+                                                '{hostname}_{title}.html'.format(hostname=self.hostname, title=title)))
+        }
 
-    def look(self):
-        top_content = get_top_content(self.hostname, self.username, self.password)
-        time_str = str(datetime.datetime.now())
-        cpu = get_cpu_usage(top_content)
-        print('host:', self.hostname, 'time:', datetime.datetime.now(), '\ncpu:', cpu, '%')
-        mem = get_memory_usage(top_content)
-        print('mem', mem, 'KiB', round(mem / 1024, 2), 'MiB', round(mem / (1024 * 1024), 2), 'GiB\n')
-        self.cpu_draw.add_data(x_data=time_str, y_data=cpu)
-        self.mem_draw.add_data(x_data=time_str, y_data=round(mem / (1024 * 1024), 2))
-        return cpu, mem
+    def _look(self, command, draw, content_handle, time_handle):
+        try:
+            content = self._exec_ssh_command(command)
+            y_data = content_handle(content)
+            x_data = time_handle()
+            draw.add_data(x_data=x_data, y_data=y_data)
+            draw.save()
+        except Exception as e:
+            logging.error('command:{} error:{}'.format(command, e))
+
+    def looks(self):
+        for title, monitor_dict in self.monitor_map.items():
+            command = monitor_dict['command']
+            content_handle = monitor_dict['content_handle']
+            time_handle = monitor_dict['time_handle']
+            draw = monitor_dict['draw']
+            self.thread_pool.submit(self._look, command, draw, content_handle, time_handle)
+
+    def end(self):
+        for title, monitor_dict in self.monitor_map.items():
+            draw = monitor_dict['draw']
+            self.page.add(draw.draw())
+        self.page.render(os.path.join(self.save_dir, '{}_总监控.html'.format(self.hostname)))
 
     def start_server(self, host='0.0.0.0', port=8888):
         """启动监控web服务"""
         pass
 
-
-# def monitor(hostname, username, password):
-#     top_content = get_top_content(hostname, username, password)
-#
-#     cpu = get_cpu_usage(top_content)
-#     print('host:', hostname, 'time:', datetime.datetime.now(), '\ncpu:', cpu, '%')
-#     mem = get_memory_usage(top_content)
-#     print('mem', mem, 'KiB', round(mem / 1024, 2), 'MiB', round(mem / (1024 * 1024), 2), 'GiB\n')
-#     return cpu, mem
-
 if __name__ == '__main__':
-    from pyecharts.globals import CurrentConfig, OnlineHostType
+    def top_cpu_usage(content):
+        """
+        return 使用率(%)
+        """
+        lines = content.split('\n')
+        cpu_line = [x for x in lines if 'Cpu(s)' in x][0]
+        cpu_strs = cpu_line.split(':')[1].split(',')
+        cpu_id_str = cpu_strs[3].strip()
+        cpu_id = float(cpu_id_str.split()[0])
+        usage = 100 - cpu_id
+        return round(usage, 2)
 
-    dir_path = os.path.dirname(__file__)
-    assets_path = os.path.join(dir_path, 'assets')
-    CurrentConfig.ONLINE_HOST = assets_path + '/'
 
-    monitor1 = Monitor(hostname='10.76.69.231', username='root', password='Admin_123qianxin', save_dir="./monitors")
-    monitor1.add_monitor()
-    monitor2 = Monitor(hostname='10.76.69.232', username='root', password='Admin_123qianxin', save_dir="./monitors")
-    monitor3 = Monitor(hostname='10.76.69.233', username='root', password='Admin_123qianxin', save_dir="./monitors")
+    def top_memory_usage(content):
+        """
+        return 字节
+        """
+        lines = content.split('\n')
+        mem_line = [x for x in lines if x.startswith('KiB Mem')][0]
+        mem_infos = mem_line.split(',')
+        used = [x for x in mem_infos if 'used' in x][0]
+        used = used.split()[0]
+        # return int(used) # 字节
+        return round(used / 1024, 2)  # MiB
+        # return round(used / (1024 * 1024), 2) # GiB
 
-    look_time = 600  # 秒
+
+    # from pyecharts.globals import CurrentConfig, OnlineHostType
+    #
+    # dir_path = os.path.dirname(__file__)
+    # assets_path = os.path.join(dir_path, 'assets')
+    # CurrentConfig.ONLINE_HOST = assets_path + '/'
+
+    monitor1 = Monitor(hostname='192.168.0.111', username='csx', password='Orange_123', save_dir="D:\\tmp\\monitor")
+    monitor1.add_monitor(command="free -m | sed -n '2p'|awk '{print $3/$2*100}'", y_name='内存使用率%', title='内存监控')
+    monitor1.add_monitor(command="top -bn 1", content_handle=top_cpu_usage, y_name='cpu使用率%', title='cpu监控')
+
+    monitor2 = Monitor(hostname='192.168.0.112', username='csx', password='Orange_123', save_dir="D:\\tmp\\monitor")
+    monitor2.add_monitor(command="free -m | sed -n '2p'|awk '{print $3/$2*100}'", y_name='内存使用率%', title='内存监控')
+    monitor2.add_monitor(command="top -bn 1", content_handle=top_cpu_usage, y_name='cpu使用率%', title='cpu监控')
+
+    monitor3 = Monitor(hostname='192.168.0.108', username='csx', password='Orange_123', save_dir="D:\\tmp\\monitor")
+    monitor3.add_monitor(command="free -m | sed -n '2p'|awk '{print $3/$2*100}'", y_name='内存使用率%', title='内存监控')
+    monitor3.add_monitor(command="top -bn 1", content_handle=top_cpu_usage, y_name='cpu使用率%', title='cpu监控')
+
+    look_time = 100  # 秒
     for i in range(look_time):
-        monitor1.look()
-        monitor2.look()
-        monitor3.look()
-        time.sleep(1)
+        monitor1.looks()
+        monitor2.looks()
+        monitor3.looks()
+        time.sleep(0.1)
+    monitor1.end()
+    monitor2.end()
+    monitor3.end()
