@@ -149,7 +149,7 @@ if __name__ == '__main__':
         monitor1.looks()
         monitor2.looks()
         monitor3.looks()
-        time.sleep(0.1)
+        time.sleep(1)
     monitor1.end()
     monitor2.end()
     monitor3.end()
